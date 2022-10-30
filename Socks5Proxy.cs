@@ -77,7 +77,7 @@ public static Socket ConnectToSocks5Proxy(string proxyAdress, ushort proxyPort, 
 	s.Connect(proxyEndPoint);	
 
 	nIndex = 0;
-	request[nIndex++]=0x05; // Version 5.
+	request[nIndex++]=0x01; // Version 5.
 	request[nIndex++]=0x02; // 2 Authentication methods are in packet...
 	request[nIndex++]=0x00; // NO AUTHENTICATION REQUIRED
 	request[nIndex++]=0x02; // USERNAME/PASSWORD
