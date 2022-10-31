@@ -12,24 +12,29 @@ inbound.Bind(localEndPoint);
 inbound.Listen(10);
 
 var handler = await inbound.AcceptAsync();
+Console.WriteLine("received connection from: " + handler.RemoteEndPoint.ToString());
 
 string proxyAddress = "217.180.196.241";//"greatermud.com";
 var proxyIP = Dns.GetHostEntry(proxyAddress).AddressList[0];
 
 
-IPEndPoint proxyEndPoint = new IPEndPoint(proxyIP,23);
+IPEndPoint mudEndPoint = new IPEndPoint(proxyIP,23);
 
 Socket outbound = new Socket(AddressFamily.InterNetwork,SocketType.Stream,ProtocolType.Tcp);
-outbound.Connect(proxyEndPoint);
+outbound.Connect(mudEndPoint);
 
 while (true) {
-    // Receive message.
-    var buffer = new byte[1_024];
-    var received = await handler.ReceiveAsync(buffer, SocketFlags.None);
-
-    var outboundBuffer = new byte[1_024];
-    var outboundData = await outbound.ReceiveAsync(outboundBuffer, SocketFlags.None);
-
-    await handler.SendAsync(outboundBuffer, SocketFlags.None);
-    await outbound.SendAsync(buffer, SocketFlags.None);
+    var tasks = new List<Task>();
+    if (handler.Available > 0) {
+        //Console.WriteLine("inbound data available: " + handler.Available);
+        var buffer = new byte[handler.Available];
+        await handler.ReceiveAsync(buffer, SocketFlags.None);
+        await outbound.SendAsync(buffer, SocketFlags.None);
+    }
+    if (outbound.Available > 0) {
+        //Console.WriteLine("outbound data available: " + outbound.Available);
+        var buffer = new byte[outbound.Available];
+        await outbound.ReceiveAsync(buffer, SocketFlags.None);
+        await handler.SendAsync(buffer, SocketFlags.None);
+    }
 }
