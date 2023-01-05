@@ -1,40 +1,82 @@
-﻿using System;
-using System.Net;
+﻿using System.Net;
 using System.Net.Sockets;
-using System.Text;
 
 // See https://aka.ms/new-console-template for more information
-Console.WriteLine("Hello, World!");
 
-Socket inbound = new Socket(AddressFamily.InterNetwork,SocketType.Stream,ProtocolType.Tcp);
-IPEndPoint localEndPoint = new IPEndPoint(IPAddress.Any, 1080);
+using var inbound = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+var localEndPoint = new IPEndPoint(IPAddress.Any, 1080);
 inbound.Bind(localEndPoint);
 inbound.Listen(10);
 
-var handler = await inbound.AcceptAsync();
-Console.WriteLine("received connection from: " + handler.RemoteEndPoint.ToString());
+var sessions = new List<Task>();
+while (true)
+{
+    // Listen for a connection
+    var handler = await inbound.AcceptAsync();
+    Console.WriteLine($"received connection from: {handler.RemoteEndPoint}");
 
-string proxyAddress = "217.180.196.241";//"greatermud.com";
-var proxyIP = Dns.GetHostEntry(proxyAddress).AddressList[0];
+    // Hand the connection off to a task
+    sessions.Add(Begin(handler));
+}
 
+static async Task Begin(Socket handler)
+{
+    var localEndPoint = handler.RemoteEndPoint;
+    string proxyAddress = "217.180.196.241";//"greatermud.com";
+    var proxyIP = Dns.GetHostEntry(proxyAddress).AddressList[0];
+    var mudEndPoint = new IPEndPoint(proxyIP, 2427);
 
-IPEndPoint mudEndPoint = new IPEndPoint(proxyIP,23);
+    var outbound = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+    outbound.Connect(mudEndPoint);
 
-Socket outbound = new Socket(AddressFamily.InterNetwork,SocketType.Stream,ProtocolType.Tcp);
-outbound.Connect(mudEndPoint);
+    var waiter = new ManualResetEvent(false);
+    BeginReceive(new byte[1024], Direction.ToMud, handler, outbound, waiter);
+    BeginReceive(new byte[1024], Direction.FromMud, outbound, handler, waiter);
 
-while (true) {
-    var tasks = new List<Task>();
-    if (handler.Available > 0) {
-        //Console.WriteLine("inbound data available: " + handler.Available);
-        var buffer = new byte[handler.Available];
-        await handler.ReceiveAsync(buffer, SocketFlags.None);
-        await outbound.SendAsync(buffer, SocketFlags.None);
+    // Allow other tasks to continue while this connection is alive
+    await Task.Run(() => waiter.WaitOne());
+    waiter.Dispose();
+
+    Console.WriteLine($"closed connection from: {localEndPoint}");
+}
+
+static void BeginReceive(byte[] buffer, Direction direction, Socket origin, Socket destination, ManualResetEvent waiter)
+{
+    origin.BeginReceive(
+        buffer,
+        0,
+        buffer.Length,
+        SocketFlags.None,
+        async result => await OnReceiveAsync(result, buffer, direction, origin, destination, waiter),
+        null);
+}
+
+static async Task OnReceiveAsync(IAsyncResult result, byte[] buffer, Direction direction, Socket origin, Socket destination, ManualResetEvent waiter)
+{
+    var read = origin.EndReceive(result);
+    if (read == 0 || !destination.Connected)
+    {
+        await origin.DisconnectAsync(false);
+        origin.Dispose();
+
+        // Signals that the connection closed
+        waiter.Set();
+        return;
     }
-    if (outbound.Available > 0) {
-        //Console.WriteLine("outbound data available: " + outbound.Available);
-        var buffer = new byte[outbound.Available];
-        await outbound.ReceiveAsync(buffer, SocketFlags.None);
-        await handler.SendAsync(buffer, SocketFlags.None);
-    }
+
+    await destination.SendAsync(buffer.Take(read).ToArray(), SocketFlags.None);
+
+    origin.BeginReceive(
+        buffer,
+        0,
+        buffer.Length,
+        SocketFlags.None,
+        async result => await OnReceiveAsync(result, buffer, direction, origin, destination, waiter),
+        null);
+}
+
+internal enum Direction
+{
+    ToMud,
+    FromMud
 }
