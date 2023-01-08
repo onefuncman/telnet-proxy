@@ -1,6 +1,8 @@
 ﻿using System.Net.Sockets;
 using System.Net;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using telnet_proxy.Logging.Extensions;
 
 namespace telnet_proxy
 {
@@ -9,9 +11,12 @@ namespace telnet_proxy
 
         private readonly IServiceProvider serviceProvider;
 
-        public TelnetProxy(IServiceProvider serviceProvider)
+        private readonly ILogger logger;
+
+        public TelnetProxy(IServiceProvider serviceProvider, ILogger<TelnetProxy> logger)
         {
             this.serviceProvider = serviceProvider;
+            this.logger = logger;
         }
 
         public async Task StartAsync(CancellationToken cancellationToken = default)
@@ -22,20 +27,26 @@ namespace telnet_proxy
             inbound.Listen(10);
 
             var sessions = new List<Task>();
-            while (true)
+            while (!cancellationToken.IsCancellationRequested)
             {
                 // Listen for a connection
                 try
                 {
                     var handler = await inbound.AcceptAsync(cancellationToken);
-                    Console.WriteLine($"received connection from: {handler.RemoteEndPoint}");
+                    this.logger.StartLog()
+                        .WithMessage($"Received connection from {handler.RemoteEndPoint}")
+                        .WithLogLevel(LogLevel.Information)
+                        .Log();
 
                     using var scope = this.serviceProvider.CreateScope();
                     var broker = scope.ServiceProvider.GetService<ITelnetProxyBroker>();
 
                     if (broker == null)
                     {
-                        Console.WriteLine("Proxy cannot be established: no broker service was found");
+                        this.logger.StartLog()
+                            .WithMessage("Proxy cannot be established. No broker service was found.")
+                            .WithLogLevel(LogLevel.Error)
+                            .Log();
                         handler.Dispose();
                         continue;
                     }

@@ -1,10 +1,10 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using telnet_proxy;
 using telnet_proxy.Extensions;
 
-await CreateHostBuilder(args)
-    .RunConsoleAsync();
+await CreateHostBuilder(args).RunConsoleAsync();
 
 static IHostBuilder CreateHostBuilder(string[] args) =>
     Host.CreateDefaultBuilder(args)
@@ -18,4 +18,9 @@ static IHostBuilder CreateHostBuilder(string[] args) =>
                     options.ProxyAddress = "217.180.196.241";
                     options.ProxyPort = 2427;
                 });
+        })
+        .ConfigureLogging(logging =>
+        {
+            logging.SetMinimumLevel(LogLevel.Information);
+            logging.AddConsole();
         });

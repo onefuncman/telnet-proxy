@@ -6,14 +6,22 @@ namespace telnet_proxy
     {
         private readonly ITelnetProxy telnetProxy;
 
-        public TelnetProxyHostService(ITelnetProxy telnetProxy)
+        private readonly IHostApplicationLifetime lifetime;
+
+        public TelnetProxyHostService(ITelnetProxy telnetProxy, IHostApplicationLifetime lifetime)
         {
             this.telnetProxy = telnetProxy;
+            this.lifetime = lifetime;
         }
 
-        public async Task StartAsync(CancellationToken cancellationToken = default)
+        public Task StartAsync(CancellationToken cancellationToken = default)
         {
-            await this.telnetProxy.StartAsync(cancellationToken);
+            this.lifetime.ApplicationStarted.Register(async () =>
+            {
+                await this.telnetProxy.StartAsync(cancellationToken);
+            });
+
+            return Task.CompletedTask;
         }
 
         public Task StopAsync(CancellationToken cancellationToken = default)
