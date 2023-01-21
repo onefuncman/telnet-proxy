@@ -1,40 +1,26 @@
-﻿using System;
-using System.Net;
-using System.Net.Sockets;
-using System.Text;
+﻿using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using telnet_proxy;
+using telnet_proxy.Extensions;
 
-// See https://aka.ms/new-console-template for more information
-Console.WriteLine("Hello, World!");
+await CreateHostBuilder(args).RunConsoleAsync();
 
-Socket inbound = new Socket(AddressFamily.InterNetwork,SocketType.Stream,ProtocolType.Tcp);
-IPEndPoint localEndPoint = new IPEndPoint(IPAddress.Any, 1080);
-inbound.Bind(localEndPoint);
-inbound.Listen(10);
+static IHostBuilder CreateHostBuilder(string[] args) =>
+    Host.CreateDefaultBuilder(args)
+        .ConfigureServices((context, services) =>
+        {
+            services.AddHostedService<TelnetProxyHostService>();
 
-var handler = await inbound.AcceptAsync();
-Console.WriteLine("received connection from: " + handler.RemoteEndPoint.ToString());
-
-string proxyAddress = "217.180.196.241";//"greatermud.com";
-var proxyIP = Dns.GetHostEntry(proxyAddress).AddressList[0];
-
-
-IPEndPoint mudEndPoint = new IPEndPoint(proxyIP,23);
-
-Socket outbound = new Socket(AddressFamily.InterNetwork,SocketType.Stream,ProtocolType.Tcp);
-outbound.Connect(mudEndPoint);
-
-while (true) {
-    var tasks = new List<Task>();
-    if (handler.Available > 0) {
-        //Console.WriteLine("inbound data available: " + handler.Available);
-        var buffer = new byte[handler.Available];
-        await handler.ReceiveAsync(buffer, SocketFlags.None);
-        await outbound.SendAsync(buffer, SocketFlags.None);
-    }
-    if (outbound.Available > 0) {
-        //Console.WriteLine("outbound data available: " + outbound.Available);
-        var buffer = new byte[outbound.Available];
-        await outbound.ReceiveAsync(buffer, SocketFlags.None);
-        await handler.SendAsync(buffer, SocketFlags.None);
-    }
-}
+            services.AddTelnetProxy<MudProxy>()
+                .Configure(options =>
+                {
+                    options.ProxyAddress = "217.180.196.241";
+                    options.ProxyPort = 2427;
+                });
+        })
+        .ConfigureLogging(logging =>
+        {
+            logging.SetMinimumLevel(LogLevel.Information);
+            logging.AddConsole();
+        });
