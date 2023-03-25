@@ -1,77 +1,50 @@
-import socket
-import threading
+import signal
 import asyncio
 from typing import List
 from enum import Enum
-import signal
+import telnetlib
+
+from telnet_proxy import TelnetProxy
+
 
 class Direction(Enum):
     ToMud = 1
     FromMud = 2
 
-def begin_receive(buffer, direction, origin, destination, waiter):
-    def on_receive(result):
-        read = origin.recv(len(buffer))
-        if not read or not destination:
-            origin.close()
-            waiter.set()
-            return
 
-        destination.sendall(read)
-        origin.settimeout(0)
-        origin.recv_into(buffer)
-        origin.settimeout(None)
-
-    origin.settimeout(None)
-    origin.setblocking(True)
-    threading.Thread(target=origin.recv_into, args=(buffer, len(buffer))).start()
-
-async def begin(handler):
+async def begin(handler, proxy):
     local_end_point = handler.getpeername()
-    proxy_address = "217.180.196.241" #"greatermud.com"
-    proxy_ip = socket.gethostbyname(proxy_address)
-    mud_end_point = (proxy_ip, 2427)
+    try:
+        proxy.start(handler, local_end_point)
+    except Exception as e:
+        print(f"error handling connection from {local_end_point}: {e}")
+    finally:
+        handler.close()
+        print(f"closed connection from: {local_end_point}")
 
-    outbound = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    outbound.settimeout(5)
-    outbound.connect(mud_end_point)
-    outbound.setblocking(True)
 
-    waiter = threading.Event()
-    buffer = bytearray(1024)
-    begin_receive(buffer, Direction.ToMud, handler, outbound, waiter)
-    begin_receive(buffer, Direction.FromMud, outbound, handler, waiter)
+async def start(proxy):
+    server = await asyncio.start_server(
+        lambda r, w: asyncio.ensure_future(begin(r, proxy)),
+        '0.0.0.0', 1080)
+    async with server:
+        print('Proxy started.')
+        await server.serve_forever()
 
-    await waiter.wait()
-    outbound.close()
-
-    print(f"closed connection from: {local_end_point}")
-
-async def start():
-    inbound = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    inbound.bind(('0.0.0.0', 1080))
-    inbound.listen(10)
-
-    sessions = []
-    while True:
-        try:
-            handler, _ = await asyncio.wait_for(inbound.accept(), timeout=0.5)
-        except asyncio.TimeoutError:
-            pass
-        else:
-            print(f"received connection from: {handler.getpeername()}")
-            sessions.append(asyncio.create_task(begin(handler)))
-        
-        await asyncio.sleep(0.1)
 
 async def main():
+    tn = telnetlib.Telnet()
+    tn.open('localhost', 23)
+    proxy = TelnetProxy(tn)
     loop = asyncio.get_event_loop()
     try:
-        await asyncio.gather(start(), loop=loop)
+        await asyncio.gather(start(proxy), loop=loop)
     except asyncio.CancelledError:
         pass
     finally:
+        tn.close()
         loop.stop()
+
 
 if __name__ == "__main__":
     loop = asyncio.get_event_loop()
@@ -80,3 +53,4 @@ if __name__ == "__main__":
         loop.run_until_complete(main())
     finally:
         loop.close()
+
