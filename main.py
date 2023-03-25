@@ -3,6 +3,7 @@ import threading
 import asyncio
 from typing import List
 from enum import Enum
+import signal
 
 class Direction(Enum):
     ToMud = 1
@@ -53,10 +54,29 @@ async def start():
 
     sessions = []
     while True:
-        handler, _ = await inbound.accept()
-        print(f"received connection from: {handler.getpeername()}")
-        sessions.append(asyncio.create_task(begin(handler)))
+        try:
+            handler, _ = await asyncio.wait_for(inbound.accept(), timeout=0.5)
+        except asyncio.TimeoutError:
+            pass
+        else:
+            print(f"received connection from: {handler.getpeername()}")
+            sessions.append(asyncio.create_task(begin(handler)))
+        
+        await asyncio.sleep(0.1)
+
+async def main():
+    loop = asyncio.get_event_loop()
+    try:
+        await asyncio.gather(start(), loop=loop)
+    except asyncio.CancelledError:
+        pass
+    finally:
+        loop.stop()
 
 if __name__ == "__main__":
-    asyncio.run(start())
-
+    loop = asyncio.get_event_loop()
+    signal.signal(signal.SIGINT, lambda s, f: loop.create_task(main().cancel()))
+    try:
+        loop.run_until_complete(main())
+    finally:
+        loop.close()
