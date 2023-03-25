@@ -1,5 +1,6 @@
 import socket
 import threading
+import asyncio
 from typing import List
 from enum import Enum
 
@@ -22,7 +23,7 @@ def begin_receive(buffer, direction, origin, destination, waiter):
 
     origin.settimeout(None)
     origin.setblocking(True)
-    threading.Thread(target=origin.begin_recv, args=(buffer, 0, len(buffer), socket.MSG_WAITALL, on_receive, None)).start()
+    threading.Thread(target=origin.recv_into, args=(buffer, len(buffer))).start()
 
 async def begin(handler):
     local_end_point = handler.getpeername()
@@ -54,7 +55,7 @@ async def start():
     while True:
         handler, _ = await inbound.accept()
         print(f"received connection from: {handler.getpeername()}")
-        sessions.append(begin(handler))
+        sessions.append(asyncio.create_task(begin(handler)))
 
 if __name__ == "__main__":
     asyncio.run(start())
